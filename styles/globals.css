@@ -1,0 +1,41 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0b0c11;
+  --surface: #13141c;
+  --surface2: #1a1b26;
+  --border: #252736;
+  --accent: #7c6af7;
+  --accent-soft: #7c6af722;
+  --teal: #4fd1c5;
+  --teal-soft: #4fd1c522;
+  --warn: #f6ad55;
+  --warn-soft: #f6ad5518;
+  --danger: #fc8181;
+  --success: #68d391;
+  --text: #e8eaf0;
+  --text2: #8b90a4;
+  --text3: #454859;
+  --font-jp: 'Noto Sans JP', 'Yu Gothic', 'Hiragino Sans', sans-serif;
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --r: 10px;
+  --r-sm: 6px;
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  height: 100vh;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+button { font-family: var(--font-ui); cursor: pointer; }
+input, textarea { font-family: var(--font-jp); }
