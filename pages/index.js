@@ -180,6 +180,11 @@ export default function Home() {
   const [showImport, setShowImport] = useState(false)
   const [importText, setImportText] = useState('')
   const [toast, setToast] = useState('')
+  const [sideTab, setSideTab] = useState('rules')
+  const [teachSurface, setTeachSurface] = useState('')
+  const [teachBracket, setTeachBracket] = useState('')
+  const [teachNote, setTeachNote] = useState('')
+  const [teachMsg, setTeachMsg] = useState(null)
 
   // Uncertain flow state
   const [uncertain, setUncertain] = useState([])
@@ -205,6 +210,60 @@ export default function Home() {
     setTimeout(() => setToast(''), 2600)
   }
 
+  // ── Xử lý form dạy trực tiếp ──
+  async function handleTeachForm() {
+    const surface = teachSurface.trim()
+    const bracket = teachBracket.trim()
+    const note = teachNote.trim()
+    if (!surface || !bracket) return
+    try {
+      const command = note
+        ? `!dạy ${surface} → ${bracket} note: ${note}`
+        : `!dạy ${surface} → ${bracket}`
+      const res = await fetch('/api/teach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command })
+      })
+      const data = await res.json()
+      if (data.rules) setRules(data.rules)
+      setTeachMsg({ ok: data.ok, text: data.message })
+      if (data.ok) {
+        setTeachSurface('')
+        setTeachBracket('')
+        setTeachNote('')
+        setTimeout(() => setTeachMsg(null), 3000)
+      }
+    } catch (err) {
+      setTeachMsg({ ok: false, text: err.message })
+    }
+  }
+
+  // ── Phát hiện lệnh dạy ──
+  function isTeachCommand(text) {
+    return /^!(dạy|sửa|xóa|note|xem)/i.test(text)
+  }
+
+  // ── Xử lý lệnh dạy (không gọi AI) ──
+  async function handleTeachCommand(text) {
+    try {
+      const res = await fetch('/api/teach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: text })
+      })
+      const data = await res.json()
+      if (data.rules) setRules(data.rules)
+      setMessages(prev => [...prev, {
+        id: Date.now(), role: 'bot',
+        type: data.ok ? 'teach-ok' : 'teach-err',
+        text: data.message
+      }])
+    } catch (err) {
+      setMessages(prev => [...prev, { id: Date.now(), role: 'bot', type: 'error', text: err.message }])
+    }
+  }
+
   // ── Send message ──
   async function sendMessage() {
     const text = input.trim()
@@ -212,6 +271,13 @@ export default function Home() {
 
     setInput('')
     setMessages(prev => [...prev, { id: Date.now(), role: 'user', text }])
+
+    // Lệnh dạy → không gọi AI, không tốn API
+    if (isTeachCommand(text)) {
+      await handleTeachCommand(text)
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -394,28 +460,50 @@ export default function Home() {
         <div className="main">
           {/* Sidebar */}
           <aside className="sidebar">
-            <div className="sb-title">📚 Đã học</div>
-            <input
-              className="sb-search"
-              placeholder="Tìm từ..."
-              value={ruleSearch}
-              onChange={e => setRuleSearch(e.target.value)}
-            />
-            <div className="sb-list">
-              {filteredRules.length === 0 ? (
-                <div className="sb-empty">
-                  {ruleCount === 0
-                    ? 'Chưa có rule nào.\nBắt đầu đóng ngoặc!'
-                    : 'Không tìm thấy.'}
-                </div>
-              ) : filteredRules.map(([surface, data]) => (
-                <div key={surface} className="rule-item">
-                  <div className="ri-surface">{surface}</div>
-                  <div className="ri-bracket">{data.bracket}</div>
-                  <button className="ri-del" onClick={() => deleteRule(surface)}>✕</button>
-                </div>
-              ))}
+            <div className="sb-tabs">
+              <button className={`sb-tab ${sideTab==='rules'?'active':''}`} onClick={()=>setSideTab('rules')}>📚 Đã học ({ruleCount})</button>
+              <button className={`sb-tab ${sideTab==='teach'?'active':''}`} onClick={()=>setSideTab('teach')}>✏️ Dạy bot</button>
             </div>
+
+            {sideTab === 'rules' && <>
+              <input className="sb-search" placeholder="Tìm từ..." value={ruleSearch} onChange={e=>setRuleSearch(e.target.value)}/>
+              <div className="sb-list">
+                {filteredRules.length === 0 ? (
+                  <div className="sb-empty">{ruleCount===0?'Chưa có rule nào.\nBắt đầu đóng ngoặc!':'Không tìm thấy.'}</div>
+                ) : filteredRules.map(([surface, data]) => (
+                  <div key={surface} className="rule-item">
+                    <div className="ri-surface">{surface}</div>
+                    <div className="ri-bracket">{data.bracket}</div>
+                    {data.note && <div className="ri-note">📝 {data.note}</div>}
+                    <button className="ri-del" onClick={()=>deleteRule(surface)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            </>}
+
+            {sideTab === 'teach' && (
+              <div className="teach-panel">
+                <div className="tp-desc">Thêm rule trực tiếp — không tốn API</div>
+                <div className="tp-field">
+                  <label>Từ / cụm</label>
+                  <input className="tp-input" placeholder="VD: こども" value={teachSurface} onChange={e=>setTeachSurface(e.target.value)}/>
+                </div>
+                <div className="tp-field">
+                  <label>Bracket</label>
+                  <input className="tp-input" placeholder="〖こども|子供〗" value={teachBracket} onChange={e=>setTeachBracket(e.target.value)}/>
+                  <div className="tp-shortcuts">
+                    <button onClick={()=>setTeachBracket(`〖${teachSurface}|〗`)}>〖〗vocab</button>
+                    <button onClick={()=>setTeachBracket(`〔${teachSurface}〕`)}>〔〕ngữ pháp</button>
+                  </div>
+                </div>
+                <div className="tp-field">
+                  <label>Ghi chú <span className="tp-opt">(tùy chọn)</span></label>
+                  <textarea className="tp-input tp-ta" placeholder="Khi nào dùng, khi nào không..." value={teachNote} onChange={e=>setTeachNote(e.target.value)} rows={2}/>
+                </div>
+                <button className="tp-submit" onClick={handleTeachForm} disabled={!teachSurface.trim()||!teachBracket.trim()}>✅ Lưu rule</button>
+                {teachMsg && <div className={`tp-msg ${teachMsg.ok?'ok':'err'}`}>{teachMsg.text}</div>}
+              </div>
+            )}
           </aside>
 
           {/* Chat */}
@@ -425,8 +513,24 @@ export default function Home() {
                 <div className="welcome">
                   <div className="welcome-icon">〖〗</div>
                   <h2>Kakko Trainer</h2>
-                  <p>Paste văn bản tiếng Nhật bên dưới.<br />Bot đóng ngoặc, hỏi khi không chắc, ghi nhớ mãi mãi.</p>
+                  <p>Paste văn bản tiếng Nhật để đóng ngoặc.<br />Hoặc dạy bot trực tiếp bằng lệnh <b>!</b></p>
+                  <div className="teach-guide">
+                    <div className="tg-title">📖 Lệnh dạy (không tốn API)</div>
+                    {[
+                      { cmd: '!dạy こども → 〖こども|子供〗', desc: 'Thêm rule mới' },
+                      { cmd: '!sửa 前に → 〔前に〕 note: chỉ khi là ngữ pháp', desc: 'Sửa + thêm ghi chú' },
+                      { cmd: '!xóa こども', desc: 'Xóa rule' },
+                      { cmd: '!note 場合 → chỉ đóng khi là ngữ pháp', desc: 'Thêm ghi chú' },
+                      { cmd: '!xem 前に', desc: 'Xem thông tin rule' },
+                    ].map(({ cmd, desc }) => (
+                      <button key={cmd} className="tg-btn" onClick={() => setInput(cmd)}>
+                        <code>{cmd}</code>
+                        <span>{desc}</span>
+                      </button>
+                    ))}
+                  </div>
                   <div className="examples">
+                    <div className="ex-label">Thử đóng ngoặc:</div>
                     {[
                       '子どもたちは学校から家まで歩いて帰ります。',
                       'このレポートを読みやすく書き直してもらえますか。',
@@ -458,6 +562,18 @@ export default function Home() {
                         onAnswer={handleAnswer}
                         onSkip={handleSkip}
                       />
+                    )}
+
+                    {msg.type === 'teach-ok' && (
+                      <div className="teach-result ok">
+                        <pre>{msg.text}</pre>
+                      </div>
+                    )}
+
+                    {msg.type === 'teach-err' && (
+                      <div className="teach-result err">
+                        <pre>{msg.text}</pre>
+                      </div>
                     )}
 
                     {msg.type === 'error' && (
@@ -563,6 +679,55 @@ export default function Home() {
           display:flex; flex-direction:column; flex-shrink:0;
           overflow:hidden;
         }
+        /* Sidebar tabs */
+        .sb-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
+        .sb-tab {
+          flex:1; padding:9px 6px; font-size:.72rem; font-weight:600;
+          background:none; border:none; color:var(--text3);
+          cursor:pointer; transition:all .15s; border-bottom:2px solid transparent;
+        }
+        .sb-tab:hover { color:var(--text2); }
+        .sb-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+        /* Teach panel */
+        .teach-panel { padding:12px 12px; overflow-y:auto; flex:1; }
+        .tp-desc { font-size:.72rem; color:var(--text3); margin-bottom:14px; line-height:1.5; }
+        .tp-field { margin-bottom:10px; }
+        .tp-field label { display:block; font-size:.7rem; font-weight:600; color:var(--text3); margin-bottom:4px; letter-spacing:.5px; }
+        .tp-opt { font-weight:400; color:var(--text3); }
+        .tp-input {
+          width:100%; background:var(--bg); border:1px solid var(--border);
+          border-radius:var(--r-sm); color:var(--text);
+          padding:7px 10px; font-size:.82rem; font-family:var(--font-jp);
+          outline:none; transition:border-color .15s;
+        }
+        .tp-input:focus { border-color:var(--accent); }
+        .tp-ta { resize:none; }
+        .tp-shortcuts { display:flex; gap:6px; margin-top:5px; }
+        .tp-shortcuts button {
+          background:var(--surface2); border:1px solid var(--border);
+          border-radius:var(--r-sm); color:var(--teal);
+          padding:3px 8px; font-size:.72rem; font-family:var(--font-jp);
+          cursor:pointer; transition:all .15s;
+        }
+        .tp-shortcuts button:hover { border-color:var(--teal); }
+        .tp-submit {
+          width:100%; margin-top:4px;
+          background:var(--accent); border:none; border-radius:var(--r-sm);
+          color:#fff; padding:9px; font-size:.82rem; font-weight:700;
+          cursor:pointer; transition:all .15s;
+        }
+        .tp-submit:hover:not(:disabled) { background:#6a58e8; }
+        .tp-submit:disabled { background:var(--border); cursor:not-allowed; opacity:.5; }
+        .tp-msg {
+          margin-top:8px; padding:8px 10px; border-radius:var(--r-sm);
+          font-size:.78rem; line-height:1.5; white-space:pre-wrap;
+          font-family:var(--font-jp);
+        }
+        .tp-msg.ok { background:#68d39115; border:1px solid #68d39144; color:var(--success); }
+        .tp-msg.err { background:#fc818115; border:1px solid #fc818144; color:var(--danger); }
+        .ri-note { font-size:.68rem; color:var(--text3); margin-top:3px; line-height:1.4; }
+
         .sb-title {
           padding:13px 14px 10px;
           font-size:.68rem; font-weight:700; letter-spacing:2px;
@@ -606,7 +771,7 @@ export default function Home() {
         .messages { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
 
         /* Welcome */
-        .welcome { text-align:center; padding:50px 20px; color:var(--text3); }
+        .welcome { text-align:center; padding:30px 20px; color:var(--text3); }
         .welcome-icon {
           font-size:2.2rem; color:var(--accent);
           font-family:var(--font-jp); margin-bottom:14px;
@@ -614,10 +779,61 @@ export default function Home() {
         }
         .welcome h2 { font-size:1.3rem; color:var(--text2); margin-bottom:8px; }
         .welcome p { font-size:.83rem; line-height:1.8; color:var(--text3); }
-        .examples { margin-top:20px; display:flex; flex-direction:column; gap:7px; max-width:460px; margin-left:auto; margin-right:auto; }
+
+        /* Teach guide */
+        .teach-guide {
+          margin: 16px auto 0;
+          max-width: 520px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--r);
+          overflow: hidden;
+          text-align: left;
+        }
+        .tg-title {
+          padding: 8px 14px;
+          font-size: .68rem; font-weight: 700; letter-spacing: 1.5px;
+          color: var(--text3); text-transform: uppercase;
+          background: var(--surface2); border-bottom: 1px solid var(--border);
+        }
+        .tg-btn {
+          display: flex; align-items: center; justify-content: space-between;
+          width: 100%; padding: 8px 14px;
+          background: none; border: none; border-bottom: 1px solid var(--border);
+          cursor: pointer; transition: background .15s; gap: 12px;
+          text-align: left;
+        }
+        .tg-btn:last-child { border-bottom: none; }
+        .tg-btn:hover { background: var(--surface2); }
+        .tg-btn code {
+          font-family: monospace; font-size: .78rem;
+          color: var(--accent); flex-shrink: 0;
+        }
+        .tg-btn span { font-size: .72rem; color: var(--text3); }
+
+        .examples { margin-top:14px; display:flex; flex-direction:column; gap:7px; max-width:520px; margin-left:auto; margin-right:auto; }
+        .ex-label { font-size:.7rem; color:var(--text3); margin-bottom:2px; text-align:left; letter-spacing:1px; }
         .ex-btn {
           background:var(--surface); border:1px solid var(--border);
           border-radius:var(--r-sm); padding:8px 14px;
+          font-family:var(--font-jp); font-size:.81rem; color:var(--text2);
+          text-align:left; transition:all .15s;
+        }
+        .ex-btn:hover { border-color:var(--accent); color:var(--text); }
+
+        /* Teach result */
+        .teach-result {
+          border-radius: var(--r-sm);
+          padding: 10px 14px;
+        }
+        .teach-result pre {
+          font-family: var(--font-jp); font-size: .85rem;
+          line-height: 1.7; white-space: pre-wrap; margin: 0;
+        }
+        .teach-result.ok { background: #68d39115; border: 1px solid #68d39144; }
+        .teach-result.ok pre { color: var(--success); }
+        .teach-result.err { background: #fc818115; border: 1px solid #fc818144; }
+        .teach-result.err pre { color: var(--danger); }
           font-family:var(--font-jp); font-size:.81rem; color:var(--text2);
           text-align:left; transition:all .15s;
         }
