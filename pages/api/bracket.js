@@ -24,11 +24,14 @@ export default async function handler(req, res) {
             parts: [{ text: systemPrompt }]
           },
           contents: [
-            { role: 'user', parts: [{ text }] }
+            {
+              role: 'user',
+              parts: [{ text: `Hãy đóng ngoặc đoạn văn sau theo đúng quy tắc Kakko:\n\n${text}` }]
+            }
           ],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 4096,
+            maxOutputTokens: 8192,
           }
         })
       }
@@ -36,11 +39,26 @@ export default async function handler(req, res) {
 
     const data = await geminiRes.json()
 
+    // Debug: log toàn bộ response để kiểm tra
+    console.log('Gemini response:', JSON.stringify(data, null, 2))
+
     if (data.error) {
       return res.status(500).json({ error: data.error.message })
     }
 
-    const output = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    // Kiểm tra finish reason
+    const candidate = data.candidates?.[0]
+    const finishReason = candidate?.finishReason
+    const output = candidate?.content?.parts?.[0]?.text || ''
+
+    // Nếu bị block hoặc rỗng
+    if (!output) {
+      const reason = finishReason || 'unknown'
+      return res.status(500).json({ 
+        error: `Gemini không trả về kết quả. Lý do: ${reason}. Response: ${JSON.stringify(data).slice(0, 300)}`
+      })
+    }
+
     return res.status(200).json({ output })
 
   } catch (err) {
